@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "agx-ecosystem"
+name = "agx_ecosystem"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",

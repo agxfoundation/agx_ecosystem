@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Transfer, TokenAccount, Mint, Token};
 
-declare_id!("6K4DfGwkgAoKsQX2iMa6i21TMBNYfoeuqxMKjhJTohAg");
+declare_id!("niaMeiu7vpiCvRpTEtEcmexMGD4JP7yH8JeYkLyzsiz");
 
 #[program]
 pub mod agx_ecosystem {
@@ -22,7 +22,7 @@ pub mod agx_ecosystem {
         state.usdt_vault = ctx.accounts.usdt_vault.key();
         state.reward_vault = ctx.accounts.reward_vault.key();
         state.presale_vault = ctx.accounts.presale_vault.key();
-
+        
         state.treasury_vault = ctx.accounts.treasury_vault.key();
         state.development_vault = ctx.accounts.development_vault.key();
         state.marketing_vault = ctx.accounts.marketing_vault.key();
@@ -38,7 +38,7 @@ pub mod agx_ecosystem {
 
         state.sell_price = sell_price; // Decimals matching USDT (6 decimals)
         state.swap_fee_percentage = swap_fee_percentage;
-
+        
         state.tokens_sold_presale = 0;
         state.tokens_sold_reward = 0;
         state.transaction_count = 0;
@@ -53,7 +53,7 @@ pub mod agx_ecosystem {
 
         state.sale_completed = false;
         state.reward_sale_completed = false;
-
+        
         state.reward_counter = 0;
         state.returned_counter = 0;
         state.sale_counter = 0; // Cumulative AGX tokens sold
@@ -114,7 +114,10 @@ pub mod agx_ecosystem {
     }
 
     /// Buy and Stake instantly in one transaction (clean frontend flow).
-    pub fn buy_and_stake(ctx: Context<BuyAndStake>, usdt_amount: u64) -> Result<()> {
+    pub fn buy_and_stake(
+        ctx: Context<BuyAndStake>,
+        usdt_amount: u64,
+    ) -> Result<()> {
         let state = &mut ctx.accounts.state;
         require!(!state.emergency_paused, AGXError::EmergencyPaused);
         require!(state.buy_active, AGXError::PurchaseInactive);
@@ -125,37 +128,23 @@ pub mod agx_ecosystem {
 
         // 1. Calculate active price and equivalent AGX
         let current_price = get_active_price(state)?;
-        let agx_amount = usdt_amount
-            .checked_mul(1_000_000_000u64)
-            .unwrap()
-            .checked_div(current_price)
-            .unwrap();
+        let agx_amount = usdt_amount.checked_mul(1_000_000_000u64).unwrap().checked_div(current_price).unwrap();
 
         // 2. Verification of total hard cap constraint BEFORE updating counters
-        let total_sold = state
-            .tokens_sold_presale
-            .checked_add(state.tokens_sold_reward)
-            .unwrap();
+        let total_sold = state.tokens_sold_presale.checked_add(state.tokens_sold_reward).unwrap();
         let new_total_sold = total_sold.checked_add(agx_amount).unwrap();
-        require!(
-            new_total_sold <= 30_000_000_000_000_000u64,
-            AGXError::HardCapReached
-        );
+        require!(new_total_sold <= 30_000_000_000_000_000u64, AGXError::HardCapReached);
 
         // 3. Update tokens sold and reward pool allocations safely
         if state.tokens_sold_presale < 5_000_000_000_000_000u64 {
-            let presale_rem = 5_000_000_000_000_000u64
-                .checked_sub(state.tokens_sold_presale)
-                .unwrap();
+            let presale_rem = 5_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
             if agx_amount > presale_rem {
                 state.tokens_sold_presale = 5_000_000_000_000_000u64;
                 let reward_part = agx_amount.checked_sub(presale_rem).unwrap();
-                state.tokens_sold_reward =
-                    state.tokens_sold_reward.checked_add(reward_part).unwrap();
+                state.tokens_sold_reward = state.tokens_sold_reward.checked_add(reward_part).unwrap();
                 state.reward_sold = state.reward_sold.checked_add(reward_part).unwrap();
             } else {
-                state.tokens_sold_presale =
-                    state.tokens_sold_presale.checked_add(agx_amount).unwrap();
+                state.tokens_sold_presale = state.tokens_sold_presale.checked_add(agx_amount).unwrap();
             }
         } else {
             state.tokens_sold_reward = state.tokens_sold_reward.checked_add(agx_amount).unwrap();
@@ -166,12 +155,7 @@ pub mod agx_ecosystem {
         if state.tokens_sold_reward >= 25_000_000_000_000_000u64 {
             state.reward_sale_completed = true;
         }
-        if state
-            .tokens_sold_presale
-            .checked_add(state.tokens_sold_reward)
-            .unwrap()
-            >= 30_000_000_000_000_000u64
-        {
+        if state.tokens_sold_presale.checked_add(state.tokens_sold_reward).unwrap() >= 30_000_000_000_000_000u64 {
             state.sale_completed = true;
         }
 
@@ -180,18 +164,9 @@ pub mod agx_ecosystem {
         let total_reward = agx_amount.checked_mul(multiplier as u64).unwrap();
 
         // Update Reward Vault allocations
-        require!(
-            state.reward_vault_available >= total_reward,
-            AGXError::InsufficientRewardVault
-        );
-        state.reward_vault_reserved = state
-            .reward_vault_reserved
-            .checked_add(total_reward)
-            .unwrap();
-        state.reward_vault_available = state
-            .reward_vault_total
-            .checked_sub(state.reward_vault_reserved)
-            .unwrap();
+        require!(state.reward_vault_available >= total_reward, AGXError::InsufficientRewardVault);
+        state.reward_vault_reserved = state.reward_vault_reserved.checked_add(total_reward).unwrap();
+        state.reward_vault_available = state.reward_vault_total.checked_sub(state.reward_vault_reserved).unwrap();
 
         // 5. Transfer USDT from User to USDT Vault
         let cpi_accounts = Transfer {
@@ -216,7 +191,7 @@ pub mod agx_ecosystem {
         stake_record.purchase_time = now;
         stake_record.last_claim_time = now;
         stake_record.is_refunded = false;
-        stake_record.is_staked = true;
+        stake_record.is_staked = true; 
 
         // Increment counts
         state.transaction_count = state.transaction_count.checked_add(1).unwrap();
@@ -236,7 +211,10 @@ pub mod agx_ecosystem {
     }
 
     /// Claim unlocked rewards linearly on a monthly/epoch schedule.
-    pub fn claim_rewards(ctx: Context<ClaimRewards>, record_id: u64) -> Result<()> {
+    pub fn claim_rewards(
+        ctx: Context<ClaimRewards>,
+        record_id: u64,
+    ) -> Result<()> {
         let state = &mut ctx.accounts.state;
         require!(!state.emergency_paused, AGXError::EmergencyPaused);
         require!(state.claim_active, AGXError::ClaimsInactive);
@@ -244,16 +222,12 @@ pub mod agx_ecosystem {
         let stake_record = &mut ctx.accounts.stake_record;
         require!(stake_record.is_staked, AGXError::NotStaked);
         require!(!stake_record.is_refunded, AGXError::AlreadyRefunded);
-        require!(
-            stake_record.record_id == record_id,
-            AGXError::InvalidRecordId
-        );
+        require!(stake_record.record_id == record_id, AGXError::InvalidRecordId);
 
         let now = Clock::get()?.unix_timestamp;
         let elapsed = now.checked_sub(stake_record.purchase_time).unwrap();
         let total_lock_time = (stake_record.lock_duration_months as i64)
-            .checked_mul(30 * 24 * 60 * 60)
-            .unwrap(); // 30 days per month
+            .checked_mul(30 * 24 * 60 * 60).unwrap(); // 30 days per month
 
         require!(elapsed > 0, AGXError::NoClaimableRewards);
 
@@ -263,28 +237,16 @@ pub mod agx_ecosystem {
             let elapsed_bn = elapsed as u128;
             let total_lock_bn = total_lock_time as u128;
             let total_reward_bn = stake_record.total_reward_tokens as u128;
-            total_reward_bn
-                .checked_mul(elapsed_bn)
-                .unwrap()
-                .checked_div(total_lock_bn)
-                .unwrap() as u64
+            total_reward_bn.checked_mul(elapsed_bn).unwrap().checked_div(total_lock_bn).unwrap() as u64
         };
 
-        let pending_to_claim = total_claimable
-            .checked_sub(stake_record.released_tokens)
-            .unwrap();
+        let pending_to_claim = total_claimable.checked_sub(stake_record.released_tokens).unwrap();
         require!(pending_to_claim > 0, AGXError::NoClaimableRewards);
 
-        stake_record.released_tokens = stake_record
-            .released_tokens
-            .checked_add(pending_to_claim)
-            .unwrap();
+        stake_record.released_tokens = stake_record.released_tokens.checked_add(pending_to_claim).unwrap();
         stake_record.last_claim_time = now;
 
-        state.reward_vault_reserved = state
-            .reward_vault_reserved
-            .checked_sub(pending_to_claim)
-            .unwrap();
+        state.reward_vault_reserved = state.reward_vault_reserved.checked_sub(pending_to_claim).unwrap();
         state.reward_paid = state.reward_paid.checked_add(pending_to_claim).unwrap();
 
         // Transfer tokens from Reward Vault PDA (using program authority) to User Token Account
@@ -295,7 +257,10 @@ pub mod agx_ecosystem {
             authority: ctx.accounts.vault_authority.to_account_info(),
         };
 
-        let signer_seeds: &[&[&[u8]]] = &[&[b"vault-authority", &[state.vault_authority_bump]]];
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"vault-authority",
+            &[state.vault_authority_bump],
+        ]];
 
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
         token::transfer(cpi_ctx, pending_to_claim)?;
@@ -312,21 +277,18 @@ pub mod agx_ecosystem {
     }
 
     /// Claim 100% refund of USDT if requested within 7 days of buy_and_stake.
-    pub fn claim_refund(ctx: Context<ClaimRefund>, record_id: u64) -> Result<()> {
+    pub fn claim_refund(
+        ctx: Context<ClaimRefund>,
+        record_id: u64,
+    ) -> Result<()> {
         let state = &mut ctx.accounts.state;
         require!(!state.emergency_paused, AGXError::EmergencyPaused);
 
         let stake_record = &mut ctx.accounts.stake_record;
         require!(stake_record.is_staked, AGXError::NotStaked);
         require!(!stake_record.is_refunded, AGXError::AlreadyRefunded);
-        require!(
-            stake_record.released_tokens == 0,
-            AGXError::RefundForbiddenClaimed
-        );
-        require!(
-            stake_record.record_id == record_id,
-            AGXError::InvalidRecordId
-        );
+        require!(stake_record.released_tokens == 0, AGXError::RefundForbiddenClaimed);
+        require!(stake_record.record_id == record_id, AGXError::InvalidRecordId);
 
         // Refund Window verification (Strict 7 days = 604,800 seconds)
         let now = Clock::get()?.unix_timestamp;
@@ -338,27 +300,14 @@ pub mod agx_ecosystem {
 
         // Clean accounting stats
         let total_reward = stake_record.total_reward_tokens;
-        state.reward_vault_reserved = state
-            .reward_vault_reserved
-            .checked_sub(total_reward)
-            .unwrap();
-        state.reward_vault_available = state
-            .reward_vault_total
-            .checked_sub(state.reward_vault_reserved)
-            .unwrap();
+        state.reward_vault_reserved = state.reward_vault_reserved.checked_sub(total_reward).unwrap();
+        state.reward_vault_available = state.reward_vault_total.checked_sub(state.reward_vault_reserved).unwrap();
 
-        state.tokens_sold_reward = state
-            .tokens_sold_reward
-            .saturating_sub(stake_record.equivalent_agx);
-        state.reward_sold = state
-            .reward_sold
-            .saturating_sub(stake_record.equivalent_agx);
+        state.tokens_sold_reward = state.tokens_sold_reward.saturating_sub(stake_record.equivalent_agx);
+        state.reward_sold = state.reward_sold.saturating_sub(stake_record.equivalent_agx);
 
         state.returned_counter = state.returned_counter.checked_add(1).unwrap();
-        state.reward_returned = state
-            .reward_returned
-            .checked_add(stake_record.equivalent_agx)
-            .unwrap();
+        state.reward_returned = state.reward_returned.checked_add(stake_record.equivalent_agx).unwrap();
 
         // Transfer USDT back from USDT Vault (using program authority) to User USDT Account
         let cpi_program = ctx.accounts.token_program.to_account_info();
@@ -368,7 +317,10 @@ pub mod agx_ecosystem {
             authority: ctx.accounts.vault_authority.to_account_info(),
         };
 
-        let signer_seeds: &[&[&[u8]]] = &[&[b"vault-authority", &[state.vault_authority_bump]]];
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"vault-authority",
+            &[state.vault_authority_bump],
+        ]];
 
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
         token::transfer(cpi_ctx, stake_record.staked_amount_usdt)?;
@@ -385,7 +337,10 @@ pub mod agx_ecosystem {
     }
 
     /// Swap USDT directly for AGX (instantly transferred to user, no lock).
-    pub fn swap_t20(ctx: Context<SwapT20>, usdt_amount: u64) -> Result<()> {
+    pub fn swap_t20(
+        ctx: Context<SwapT20>,
+        usdt_amount: u64,
+    ) -> Result<()> {
         let state = &mut ctx.accounts.state;
         require!(!state.emergency_paused, AGXError::EmergencyPaused);
         require!(state.swap_active, AGXError::SwapInactive);
@@ -394,11 +349,7 @@ pub mod agx_ecosystem {
         // 1. Calculate tokens based on admin-defined swap price
         let current_price = state.sell_price;
         require!(current_price > 0, AGXError::PurchaseInactive);
-        let agx_amount = usdt_amount
-            .checked_mul(1_000_000_000u64)
-            .unwrap()
-            .checked_div(current_price)
-            .unwrap();
+        let agx_amount = usdt_amount.checked_mul(1_000_000_000u64).unwrap().checked_div(current_price).unwrap();
 
         // 2. Transfer USDT from User to USDT Vault
         let cpi_program = ctx.accounts.token_program.to_account_info();
@@ -417,7 +368,10 @@ pub mod agx_ecosystem {
             authority: ctx.accounts.vault_authority.to_account_info(),
         };
 
-        let signer_seeds: &[&[&[u8]]] = &[&[b"vault-authority", &[state.vault_authority_bump]]];
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"vault-authority",
+            &[state.vault_authority_bump],
+        ]];
 
         let cpi_ctx_agx = CpiContext::new_with_signer(cpi_program, cpi_accounts_agx, signer_seeds);
         token::transfer(cpi_ctx_agx, agx_amount)?;
@@ -439,7 +393,10 @@ pub mod agx_ecosystem {
     }
 
     /// Swap AGX back for USDT (direct selling back to contract with an admin fee).
-    pub fn swap_agx_to_usdt(ctx: Context<SwapAgxToUsdt>, agx_amount: u64) -> Result<()> {
+    pub fn swap_agx_to_usdt(
+        ctx: Context<SwapAgxToUsdt>,
+        agx_amount: u64,
+    ) -> Result<()> {
         let state = &mut ctx.accounts.state;
         require!(!state.emergency_paused, AGXError::EmergencyPaused);
         require!(state.swap_active, AGXError::SwapInactive);
@@ -448,19 +405,11 @@ pub mod agx_ecosystem {
         require!(current_price > 0, AGXError::PurchaseInactive);
 
         // 1. Calculate Admin Swap Fee: agx_amount * fee_pct / 100
-        let fee_amount = agx_amount
-            .checked_mul(state.swap_fee_percentage)
-            .unwrap()
-            .checked_div(100)
-            .unwrap();
+        let fee_amount = agx_amount.checked_mul(state.swap_fee_percentage).unwrap().checked_div(100).unwrap();
         let net_agx = agx_amount.checked_sub(fee_amount).unwrap();
 
         // 2. Calculate USDT output: (net_agx * price) / 10^9
-        let usdt_amount = net_agx
-            .checked_mul(current_price)
-            .unwrap()
-            .checked_div(1_000_000_000u64)
-            .unwrap();
+        let usdt_amount = net_agx.checked_mul(current_price).unwrap().checked_div(1_000_000_000u64).unwrap();
         require!(usdt_amount > 0, AGXError::BelowMinStake);
 
         // 3. User transfers full AGX (net + fee) to the Presale Vault
@@ -480,10 +429,12 @@ pub mod agx_ecosystem {
             authority: ctx.accounts.vault_authority.to_account_info(),
         };
 
-        let signer_seeds: &[&[&[u8]]] = &[&[b"vault-authority", &[state.vault_authority_bump]]];
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"vault-authority",
+            &[state.vault_authority_bump],
+        ]];
 
-        let cpi_ctx_usdt =
-            CpiContext::new_with_signer(cpi_program, cpi_accounts_usdt, signer_seeds);
+        let cpi_ctx_usdt = CpiContext::new_with_signer(cpi_program, cpi_accounts_usdt, signer_seeds);
         token::transfer(cpi_ctx_usdt, usdt_amount)?;
 
         emit!(ProgramEvent {
@@ -509,107 +460,66 @@ pub mod agx_ecosystem {
         let mut transfer_amount: u64 = 0;
 
         match vault_type {
-            1 => {
-                // Treasury Vault: 5M tokens total, 12 months lock, 1% monthly release
+            1 => { // Treasury Vault: 5M tokens total, 12 months lock, 1% monthly release
                 let elapsed = now.checked_sub(state.treasury_start_time).unwrap();
                 let lock_period = 12 * 30 * 24 * 60 * 60; // 12 Months Lock
                 require!(elapsed >= lock_period, AGXError::OperationalTimeLocked);
-
-                let months_since_lock = elapsed
-                    .checked_sub(lock_period)
-                    .unwrap()
-                    .checked_div(30 * 24 * 60 * 60)
-                    .unwrap() as u64;
+                
+                let months_since_lock = elapsed.checked_sub(lock_period).unwrap().checked_div(30 * 24 * 60 * 60).unwrap() as u64;
                 let claimable_total = (months_since_lock.checked_add(1).unwrap())
-                    .checked_mul(50_000_000_000_000u64)
-                    .unwrap(); // 1% = 50,000 tokens (9 decimals)
+                    .checked_mul(50_000_000_000_000u64).unwrap(); // 1% = 50,000 tokens (9 decimals)
                 let to_claim = claimable_total.saturating_sub(state.treasury_claimed);
                 require!(to_claim > 0, AGXError::OperationalTimeLocked);
-                require!(
-                    state.treasury_claimed.checked_add(to_claim).unwrap()
-                        <= 5_000_000_000_000_000u64,
-                    AGXError::MaxOperationalLimitReached
-                );
-
+                require!(state.treasury_claimed.checked_add(to_claim).unwrap() <= 5_000_000_000_000_000u64, AGXError::MaxOperationalLimitReached);
+                
                 state.treasury_claimed = state.treasury_claimed.checked_add(to_claim).unwrap();
                 transfer_amount = to_claim;
-            }
-            2 => {
-                // Development Vault: 5M tokens total, 8 months lock, 0.5% monthly release
+            },
+            2 => { // Development Vault: 5M tokens total, 8 months lock, 0.5% monthly release
                 let elapsed = now.checked_sub(state.development_start_time).unwrap();
                 let lock_period = 8 * 30 * 24 * 60 * 60; // 8 Months Lock
                 require!(elapsed >= lock_period, AGXError::OperationalTimeLocked);
-
-                let months_since_lock = elapsed
-                    .checked_sub(lock_period)
-                    .unwrap()
-                    .checked_div(30 * 24 * 60 * 60)
-                    .unwrap() as u64;
+                
+                let months_since_lock = elapsed.checked_sub(lock_period).unwrap().checked_div(30 * 24 * 60 * 60).unwrap() as u64;
                 let claimable_total = (months_since_lock.checked_add(1).unwrap())
-                    .checked_mul(25_000_000_000_000u64)
-                    .unwrap(); // 0.5% = 25,000 tokens (9 decimals)
+                    .checked_mul(25_000_000_000_000u64).unwrap(); // 0.5% = 25,000 tokens (9 decimals)
                 let to_claim = claimable_total.saturating_sub(state.development_claimed);
                 require!(to_claim > 0, AGXError::OperationalTimeLocked);
-                require!(
-                    state.development_claimed.checked_add(to_claim).unwrap()
-                        <= 5_000_000_000_000_000u64,
-                    AGXError::MaxOperationalLimitReached
-                );
+                require!(state.development_claimed.checked_add(to_claim).unwrap() <= 5_000_000_000_000_000u64, AGXError::MaxOperationalLimitReached);
 
-                state.development_claimed =
-                    state.development_claimed.checked_add(to_claim).unwrap();
+                state.development_claimed = state.development_claimed.checked_add(to_claim).unwrap();
                 transfer_amount = to_claim;
-            }
-            3 => {
-                // Marketing Vault: 5M tokens total, 6 months lock, 0.25% monthly release
+            },
+            3 => { // Marketing Vault: 5M tokens total, 6 months lock, 0.25% monthly release
                 let elapsed = now.checked_sub(state.marketing_start_time).unwrap();
                 let lock_period = 6 * 30 * 24 * 60 * 60; // 6 Months Lock
                 require!(elapsed >= lock_period, AGXError::OperationalTimeLocked);
-
-                let months_since_lock = elapsed
-                    .checked_sub(lock_period)
-                    .unwrap()
-                    .checked_div(30 * 24 * 60 * 60)
-                    .unwrap() as u64;
+                
+                let months_since_lock = elapsed.checked_sub(lock_period).unwrap().checked_div(30 * 24 * 60 * 60).unwrap() as u64;
                 let claimable_total = (months_since_lock.checked_add(1).unwrap())
-                    .checked_mul(12_500_000_000_000u64)
-                    .unwrap(); // 0.25% = 12,500 tokens (9 decimals)
+                    .checked_mul(12_500_000_000_000u64).unwrap(); // 0.25% = 12,500 tokens (9 decimals)
                 let to_claim = claimable_total.saturating_sub(state.marketing_claimed);
                 require!(to_claim > 0, AGXError::OperationalTimeLocked);
-                require!(
-                    state.marketing_claimed.checked_add(to_claim).unwrap()
-                        <= 5_000_000_000_000_000u64,
-                    AGXError::MaxOperationalLimitReached
-                );
+                require!(state.marketing_claimed.checked_add(to_claim).unwrap() <= 5_000_000_000_000_000u64, AGXError::MaxOperationalLimitReached);
 
                 state.marketing_claimed = state.marketing_claimed.checked_add(to_claim).unwrap();
                 transfer_amount = to_claim;
-            }
-            4 => {
-                // Roadmap Vault: 5M tokens total, 12 months lock, 0.10% monthly release
+            },
+            4 => { // Roadmap Vault: 5M tokens total, 12 months lock, 0.10% monthly release
                 let elapsed = now.checked_sub(state.roadmap_start_time).unwrap();
                 let lock_period = 12 * 30 * 24 * 60 * 60; // 12 Months Lock
                 require!(elapsed >= lock_period, AGXError::OperationalTimeLocked);
-
-                let months_since_lock = elapsed
-                    .checked_sub(lock_period)
-                    .unwrap()
-                    .checked_div(30 * 24 * 60 * 60)
-                    .unwrap() as u64;
+                
+                let months_since_lock = elapsed.checked_sub(lock_period).unwrap().checked_div(30 * 24 * 60 * 60).unwrap() as u64;
                 let claimable_total = (months_since_lock.checked_add(1).unwrap())
-                    .checked_mul(5_000_000_000_000u64)
-                    .unwrap(); // 0.10% = 5,000 tokens (9 decimals)
+                    .checked_mul(5_000_000_000_000u64).unwrap(); // 0.10% = 5,000 tokens (9 decimals)
                 let to_claim = claimable_total.saturating_sub(state.roadmap_claimed);
                 require!(to_claim > 0, AGXError::OperationalTimeLocked);
-                require!(
-                    state.roadmap_claimed.checked_add(to_claim).unwrap()
-                        <= 5_000_000_000_000_000u64,
-                    AGXError::MaxOperationalLimitReached
-                );
+                require!(state.roadmap_claimed.checked_add(to_claim).unwrap() <= 5_000_000_000_000_000u64, AGXError::MaxOperationalLimitReached);
 
                 state.roadmap_claimed = state.roadmap_claimed.checked_add(to_claim).unwrap();
                 transfer_amount = to_claim;
-            }
+            },
             _ => return Err(AGXError::InvalidVaultType.into()),
         }
 
@@ -625,7 +535,10 @@ pub mod agx_ecosystem {
             _ => unreachable!(),
         };
 
-        let signer_seeds: &[&[&[u8]]] = &[&[b"vault-authority", &[state.vault_authority_bump]]];
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"vault-authority",
+            &[state.vault_authority_bump],
+        ]];
 
         let cpi_accounts = Transfer {
             from: target_vault,
@@ -648,13 +561,13 @@ pub mod agx_ecosystem {
     }
 
     /// Admin initiates the transfer of administrative control.
-    pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<()> {
+    pub fn transfer_admin(
+        ctx: Context<TransferAdmin>,
+        new_admin: Pubkey,
+    ) -> Result<()> {
         let state = &mut ctx.accounts.state;
         require!(!state.emergency_paused, AGXError::EmergencyPaused);
-        require!(
-            new_admin != Pubkey::default(),
-            AGXError::InvalidAdminAddress
-        );
+        require!(new_admin != Pubkey::default(), AGXError::InvalidAdminAddress);
 
         state.pending_admin = new_admin;
 
@@ -673,10 +586,7 @@ pub mod agx_ecosystem {
     pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
         let state = &mut ctx.accounts.state;
         require!(!state.emergency_paused, AGXError::EmergencyPaused);
-        require!(
-            *ctx.accounts.pending_admin.key == state.pending_admin,
-            AGXError::Unauthorized
-        );
+        require!(*ctx.accounts.pending_admin.key == state.pending_admin, AGXError::Unauthorized);
 
         state.admin = state.pending_admin;
         state.pending_admin = Pubkey::default();
@@ -693,7 +603,10 @@ pub mod agx_ecosystem {
     }
 
     /// Emergency switch to lock the contract instantly.
-    pub fn set_emergency_pause(ctx: Context<SetEmergencyPause>, paused: bool) -> Result<()> {
+    pub fn set_emergency_pause(
+        ctx: Context<SetEmergencyPause>,
+        paused: bool,
+    ) -> Result<()> {
         let state = &mut ctx.accounts.state;
         state.emergency_paused = paused;
 
@@ -710,25 +623,17 @@ pub mod agx_ecosystem {
 }
 
 fn get_active_price(state: &GlobalState) -> Result<u64> {
-    let total_sold = state
-        .tokens_sold_presale
-        .checked_add(state.tokens_sold_reward)
-        .unwrap();
-
-    if total_sold < 1_000_000_000_000_000u64 {
-        // Less than 1M tokens (9 decimals)
+    let total_sold = state.tokens_sold_presale.checked_add(state.tokens_sold_reward).unwrap();
+    
+    if total_sold < 1_000_000_000_000_000u64 { // Less than 1M tokens (9 decimals)
         Ok(62_000u64) // 0.062 USDT (6 decimals)
-    } else if total_sold < 2_000_000_000_000_000u64 {
-        // 1M to 2M tokens
+    } else if total_sold < 2_000_000_000_000_000u64 { // 1M to 2M tokens
         Ok(72_000u64) // 0.072 USDT
-    } else if total_sold < 3_000_000_000_000_000u64 {
-        // 2M to 3M tokens
+    } else if total_sold < 3_000_000_000_000_000u64 { // 2M to 3M tokens
         Ok(85_000u64) // 0.085 USDT
-    } else if total_sold < 4_000_000_000_000_000u64 {
-        // 3M to 4M tokens
+    } else if total_sold < 4_000_000_000_000_000u64 { // 3M to 4M tokens
         Ok(95_000u64) // 0.095 USDT
-    } else if total_sold < 5_000_000_000_000_000u64 {
-        // 4M to 5M tokens
+    } else if total_sold < 5_000_000_000_000_000u64 { // 4M to 5M tokens
         Ok(100_000u64) // 0.10 USDT
     } else {
         // Phase 2: After 5M tokens sold
@@ -1075,7 +980,7 @@ pub struct GlobalState {
     pub usdt_vault: Pubkey,
     pub reward_vault: Pubkey,
     pub presale_vault: Pubkey,
-
+    
     pub treasury_vault: Pubkey,
     pub development_vault: Pubkey,
     pub marketing_vault: Pubkey,

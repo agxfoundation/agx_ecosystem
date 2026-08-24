@@ -3,7 +3,7 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-agx_ecosystem = "6K4DfGwkgAoKsQX2iMa6i21TMBNYfoeuqxMKjhJTohAg"
+agx_ecosystem = "niaMeiu7vpiCvRpTEtEcmexMGD4JP7yH8JeYkLyzsiz"
 
 [registry]
 url = "https://api.apr.dev"
