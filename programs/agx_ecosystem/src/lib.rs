@@ -346,8 +346,8 @@ pub mod agx_ecosystem {
         require!(state.swap_active, AGXError::SwapInactive);
         require!(!state.sale_completed, AGXError::SalesCompleted);
 
-        // 1. Calculate tokens based on admin-defined swap price
-        let current_price = state.sell_price;
+        // 1. Calculate tokens based on active dynamic presale/bonding curve price
+        let current_price = get_active_price(state)?;
         require!(current_price > 0, AGXError::PurchaseInactive);
         let agx_amount = usdt_amount.checked_mul(1_000_000_000u64).unwrap().checked_div(current_price).unwrap();
 
@@ -361,7 +361,7 @@ pub mod agx_ecosystem {
         let cpi_ctx = CpiContext::new(cpi_program.clone(), cpi_accounts);
         token::transfer(cpi_ctx, usdt_amount)?;
 
-        // 3. Transfer AGX from Presale Vault (using program authority) to User Token Account
+        // 3. Transfer AGX from Presale Vault (using program authority) to User Token Account (Wallet Direct)
         let cpi_accounts_agx = Transfer {
             from: ctx.accounts.presale_vault.to_account_info(),
             to: ctx.accounts.user_token.to_account_info(),
@@ -376,7 +376,14 @@ pub mod agx_ecosystem {
         let cpi_ctx_agx = CpiContext::new_with_signer(cpi_program, cpi_accounts_agx, signer_seeds);
         token::transfer(cpi_ctx_agx, agx_amount)?;
 
-        // Cumulative accounting logs (without modifying price-determining counters)
+        // 4. Update presale counters
+        if state.tokens_sold_presale < 4_000_000_000_000_000u64 {
+            state.tokens_sold_presale = state.tokens_sold_presale.saturating_add(agx_amount);
+        } else {
+            state.tokens_sold_reward = state.tokens_sold_reward.saturating_add(agx_amount);
+        }
+
+        // Cumulative accounting logs
         state.transaction_count = state.transaction_count.checked_add(1).unwrap();
         state.sale_counter = state.sale_counter.checked_add(agx_amount).unwrap();
         state.sale_transactions = state.sale_transactions.checked_add(1).unwrap();
