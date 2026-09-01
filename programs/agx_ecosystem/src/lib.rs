@@ -620,6 +620,87 @@ pub mod agx_ecosystem {
 
         Ok(())
     }
+
+    /// Admin on-chain stake allocation for seed/treasury/offline wallets (No real USDT transfer required).
+    /// Advances presale counters on-chain naturally and transitions into Phase 5 dynamic bonding curve ($0.10 + 0.015%/1k tokens).
+    pub fn admin_stake_for_user(
+        ctx: Context<AdminStakeForUser>,
+        recipient: Pubkey,
+        agx_amount: u64, // Exact AGX tokens (9 decimals) to stake
+        tier_multiplier: u8, // 2, 3, or 4
+        lock_months: u8, // 20, 30, or 40
+    ) -> Result<()> {
+        let state = &mut ctx.accounts.state;
+        require!(!state.emergency_paused, AGXError::EmergencyPaused);
+        require!(agx_amount > 0, AGXError::ZeroAmount);
+        require!(tier_multiplier >= 2 && tier_multiplier <= 4, AGXError::InvalidTier);
+        require!(lock_months >= 20, AGXError::InvalidLockPeriod);
+
+        // 1. Calculate active price at current state
+        let current_price = get_active_price(state)?;
+        let equivalent_usdt = agx_amount.checked_mul(current_price).unwrap().checked_div(1_000_000_000u64).unwrap();
+
+        // 2. Hard cap check (Max 30M tokens)
+        let total_sold = state.tokens_sold_presale.checked_add(state.tokens_sold_reward).unwrap();
+        let new_total_sold = total_sold.checked_add(agx_amount).unwrap();
+        require!(new_total_sold <= 30_000_000_000_000_000u64, AGXError::HardCapReached);
+
+        // 3. Update tokens sold and reward pool allocations safely
+        if state.tokens_sold_presale < 5_000_000_000_000_000u64 {
+            let presale_rem = 5_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
+            if agx_amount > presale_rem {
+                state.tokens_sold_presale = 5_000_000_000_000_000u64;
+                let reward_part = agx_amount.checked_sub(presale_rem).unwrap();
+                state.tokens_sold_reward = state.tokens_sold_reward.checked_add(reward_part).unwrap();
+                state.reward_sold = state.reward_sold.checked_add(reward_part).unwrap();
+            } else {
+                state.tokens_sold_presale = state.tokens_sold_presale.checked_add(agx_amount).unwrap();
+            }
+        } else {
+            state.tokens_sold_reward = state.tokens_sold_reward.checked_add(agx_amount).unwrap();
+            state.reward_sold = state.reward_sold.checked_add(agx_amount).unwrap();
+        }
+
+        // 4. Reserve Reward Pool
+        let total_reward_tokens = agx_amount.checked_mul(tier_multiplier as u64).unwrap();
+        require!(
+            state.reward_vault_reserved.checked_add(total_reward_tokens).unwrap() <= state.reward_vault_total,
+            AGXError::RewardPoolExhausted
+        );
+        state.reward_vault_reserved = state.reward_vault_reserved.checked_add(total_reward_tokens).unwrap();
+        state.reward_vault_available = state.reward_vault_total.checked_sub(state.reward_vault_reserved).unwrap();
+
+        // 5. Populate on-chain StakeRecord PDA
+        let stake_record = &mut ctx.accounts.stake_record;
+        let now = Clock::get()?.unix_timestamp;
+
+        state.transaction_count = state.transaction_count.checked_add(1).unwrap();
+        let record_id = state.transaction_count;
+
+        stake_record.record_id = record_id;
+        stake_record.user = recipient;
+        stake_record.purchase_time = now;
+        stake_record.staked_amount_usdt = equivalent_usdt;
+        stake_record.equivalent_agx = agx_amount;
+        stake_record.tier_multiplier = tier_multiplier;
+        stake_record.lock_months = lock_months;
+        stake_record.monthly_release_tokens = total_reward_tokens.checked_div(lock_months as u64).unwrap();
+        stake_record.total_reward_tokens = total_reward_tokens;
+        stake_record.released_tokens = 0;
+        stake_record.last_claimed_time = now;
+        stake_record.is_staked = true;
+        stake_record.is_refunded = false;
+
+        emit!(ProgramEvent {
+            event_type: 1, // Buy & Stake Event
+            user: recipient,
+            amount_1: equivalent_usdt,
+            amount_2: agx_amount,
+            record_id,
+        });
+
+        Ok(())
+    }
 }
 
 fn get_active_price(state: &GlobalState) -> Result<u64> {
@@ -753,6 +834,29 @@ pub struct BuyAndStake<'info> {
     pub user: Signer<'info>,
 
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(recipient: Pubkey)]
+pub struct AdminStakeForUser<'info> {
+    #[account(mut, has_one = admin)]
+    pub state: Account<'info, GlobalState>,
+
+    /// Admin must be the signer
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    /// User's Staking Record data account
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + 128,
+        seeds = [b"stake-record", recipient.as_ref(), &state.transaction_count.to_le_bytes()],
+        bump,
+    )]
+    pub stake_record: Account<'info, StakingRecord>,
+
     pub system_program: Program<'info, System>,
 }
 
