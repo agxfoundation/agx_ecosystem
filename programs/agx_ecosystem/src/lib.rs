@@ -136,10 +136,10 @@ pub mod agx_ecosystem {
         require!(new_total_sold <= 30_000_000_000_000_000u64, AGXError::HardCapReached);
 
         // 3. Update tokens sold and reward pool allocations safely
-        if state.tokens_sold_presale < 5_000_000_000_000_000u64 {
-            let presale_rem = 5_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
+        if state.tokens_sold_presale < 4_000_000_000_000_000u64 {
+            let presale_rem = 4_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
             if agx_amount > presale_rem {
-                state.tokens_sold_presale = 5_000_000_000_000_000u64;
+                state.tokens_sold_presale = 4_000_000_000_000_000u64;
                 let reward_part = agx_amount.checked_sub(presale_rem).unwrap();
                 state.tokens_sold_reward = state.tokens_sold_reward.checked_add(reward_part).unwrap();
                 state.reward_sold = state.reward_sold.checked_add(reward_part).unwrap();
@@ -646,10 +646,10 @@ pub mod agx_ecosystem {
         require!(new_total_sold <= 30_000_000_000_000_000u64, AGXError::HardCapReached);
 
         // 3. Update tokens sold and reward pool allocations safely
-        if state.tokens_sold_presale < 5_000_000_000_000_000u64 {
-            let presale_rem = 5_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
+        if state.tokens_sold_presale < 4_000_000_000_000_000u64 {
+            let presale_rem = 4_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
             if agx_amount > presale_rem {
-                state.tokens_sold_presale = 5_000_000_000_000_000u64;
+                state.tokens_sold_presale = 4_000_000_000_000_000u64;
                 let reward_part = agx_amount.checked_sub(presale_rem).unwrap();
                 state.tokens_sold_reward = state.tokens_sold_reward.checked_add(reward_part).unwrap();
                 state.reward_sold = state.reward_sold.checked_add(reward_part).unwrap();
@@ -706,25 +706,23 @@ pub mod agx_ecosystem {
 fn get_active_price(state: &GlobalState) -> Result<u64> {
     let total_sold = state.tokens_sold_presale.checked_add(state.tokens_sold_reward).unwrap();
     
-    if total_sold < 1_000_000_000_000_000u64 { // Less than 1M tokens (9 decimals)
+    if total_sold < 1_000_000_000_000_000u64 { // Phase 1: 0 to 1M tokens
         Ok(62_000u64) // 0.062 USDT (6 decimals)
-    } else if total_sold < 2_000_000_000_000_000u64 { // 1M to 2M tokens
+    } else if total_sold < 2_000_000_000_000_000u64 { // Phase 2: 1M to 2M tokens
         Ok(72_000u64) // 0.072 USDT
-    } else if total_sold < 3_000_000_000_000_000u64 { // 2M to 3M tokens
+    } else if total_sold < 3_000_000_000_000_000u64 { // Phase 3: 2M to 3M tokens
         Ok(85_000u64) // 0.085 USDT
-    } else if total_sold < 4_000_000_000_000_000u64 { // 3M to 4M tokens
+    } else if total_sold < 4_000_000_000_000_000u64 { // Phase 4: 3M to 4M tokens
         Ok(95_000u64) // 0.095 USDT
-    } else if total_sold < 5_000_000_000_000_000u64 { // 4M to 5M tokens
-        Ok(100_000u64) // 0.10 USDT
     } else {
-        // Phase 2: After 5M tokens sold
-        // Base is 0.10 USDT (100,000 units), rises by 0.015% of base ($0.000015 = 15 units)
+        // Phase 5 (Public / Dynamic Bonding Curve): Starts immediately after 4M presale tokens sold
+        // Base is 0.10 USDT (100,000 units), rises by 0.015% ($0.000015 = 15 units)
         // per 1,000 tokens sold (1_000_000_000_000 units in 9 decimals)
-        let phase2_sold = total_sold.checked_sub(5_000_000_000_000_000u64).unwrap();
-        let thousand_tokens_chunks = phase2_sold.checked_div(1_000_000_000_000u64).unwrap();
-        let increment_amount = thousand_tokens_chunks.checked_mul(15u64).unwrap();
-        let phase2_base_price = 100_000u64; // 0.10 USDT
-        Ok(phase2_base_price.checked_add(increment_amount).unwrap())
+        let phase5_sold = total_sold.checked_sub(4_000_000_000_000_000u64).unwrap();
+        let thousand_tokens_chunks = phase5_sold.checked_div(1_000_000_000_000u64).unwrap();
+        let increment_amount = thousand_tokens_chunks.checked_mul(15u64).unwrap(); // +0.015% per 1,000 tokens
+        let phase5_base_price = 100_000u64; // 0.10 USDT Base Price
+        Ok(phase5_base_price.checked_add(increment_amount).unwrap())
     }
 }
 
