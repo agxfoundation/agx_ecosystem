@@ -136,10 +136,10 @@ pub mod agx_ecosystem {
         require!(new_total_sold <= 30_000_000_000_000_000u64, AGXError::HardCapReached);
 
         // 3. Update tokens sold and reward pool allocations safely
-        if state.tokens_sold_presale < 4_000_000_000_000_000u64 {
-            let presale_rem = 4_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
+        if state.tokens_sold_presale < 5_000_000_000_000_000u64 {
+            let presale_rem = 5_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
             if agx_amount > presale_rem {
-                state.tokens_sold_presale = 4_000_000_000_000_000u64;
+                state.tokens_sold_presale = 5_000_000_000_000_000u64;
                 let reward_part = agx_amount.checked_sub(presale_rem).unwrap();
                 state.tokens_sold_reward = state.tokens_sold_reward.checked_add(reward_part).unwrap();
                 state.reward_sold = state.reward_sold.checked_add(reward_part).unwrap();
@@ -222,6 +222,7 @@ pub mod agx_ecosystem {
         let stake_record = &mut ctx.accounts.stake_record;
         require!(stake_record.is_staked, AGXError::NotStaked);
         require!(!stake_record.is_refunded, AGXError::AlreadyRefunded);
+        require!(!stake_record.is_capped_stopped, AGXError::CappingLimitReached);
         require!(stake_record.record_id == record_id, AGXError::InvalidRecordId);
 
         let now = Clock::get()?.unix_timestamp;
@@ -377,7 +378,7 @@ pub mod agx_ecosystem {
         token::transfer(cpi_ctx_agx, agx_amount)?;
 
         // 4. Update presale counters
-        if state.tokens_sold_presale < 4_000_000_000_000_000u64 {
+        if state.tokens_sold_presale < 5_000_000_000_000_000u64 {
             state.tokens_sold_presale = state.tokens_sold_presale.saturating_add(agx_amount);
         } else {
             state.tokens_sold_reward = state.tokens_sold_reward.saturating_add(agx_amount);
@@ -653,10 +654,10 @@ pub mod agx_ecosystem {
         require!(new_total_sold <= 30_000_000_000_000_000u64, AGXError::HardCapReached);
 
         // 3. Update tokens sold and reward pool allocations safely
-        if state.tokens_sold_presale < 4_000_000_000_000_000u64 {
-            let presale_rem = 4_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
+        if state.tokens_sold_presale < 5_000_000_000_000_000u64 {
+            let presale_rem = 5_000_000_000_000_000u64.checked_sub(state.tokens_sold_presale).unwrap();
             if agx_amount > presale_rem {
-                state.tokens_sold_presale = 4_000_000_000_000_000u64;
+                state.tokens_sold_presale = 5_000_000_000_000_000u64;
                 let reward_part = agx_amount.checked_sub(presale_rem).unwrap();
                 state.tokens_sold_reward = state.tokens_sold_reward.checked_add(reward_part).unwrap();
                 state.reward_sold = state.reward_sold.checked_add(reward_part).unwrap();
@@ -704,6 +705,65 @@ pub mod agx_ecosystem {
             amount_1: equivalent_usdt,
             amount_2: agx_amount,
             record_id,
+        });
+
+        Ok(())
+    }
+
+    /// Admin stops further token distribution for a stake record if user reaches 4X Working Capping limit early.
+    pub fn admin_stop_stake_capping(
+        ctx: Context<AdminStopStakeCapping>,
+        record_id: u64,
+        is_stopped: bool,
+    ) -> Result<()> {
+        let state = &mut ctx.accounts.state;
+        require!(!state.emergency_paused, AGXError::EmergencyPaused);
+        let stake_record = &mut ctx.accounts.stake_record;
+        require!(stake_record.record_id == record_id, AGXError::InvalidRecordId);
+
+        stake_record.is_capped_stopped = is_stopped;
+
+        emit!(ProgramEvent {
+            event_type: 7, // Config/Capping update
+            user: stake_record.user,
+            amount_1: if is_stopped { 1 } else { 0 },
+            amount_2: 0,
+            record_id,
+        });
+
+        Ok(())
+    }
+
+    /// Admin withdraws collected USDT revenue from USDT Vault to the Admin's wallet.
+    pub fn admin_withdraw_usdt(
+        ctx: Context<AdminWithdrawUsdt>,
+        amount: u64,
+    ) -> Result<()> {
+        let state = &mut ctx.accounts.state;
+        require!(!state.emergency_paused, AGXError::EmergencyPaused);
+        require!(amount > 0, AGXError::BelowMinStake);
+
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.usdt_vault.to_account_info(),
+            to: ctx.accounts.admin_usdt.to_account_info(),
+            authority: ctx.accounts.vault_authority.to_account_info(),
+        };
+
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"vault-authority",
+            &[state.vault_authority_bump],
+        ]];
+
+        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
+        token::transfer(cpi_ctx, amount)?;
+
+        emit!(ProgramEvent {
+            event_type: 7, // Admin Treasury Withdraw
+            user: *ctx.accounts.admin.key,
+            amount_1: amount,
+            amount_2: 0,
+            record_id: 0,
         });
 
         Ok(())
@@ -862,6 +922,45 @@ pub struct AdminStakeForUser<'info> {
     )]
     pub stake_record: Account<'info, StakingRecord>,
 
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AdminStopStakeCapping<'info> {
+    #[account(mut, has_one = admin)]
+    pub state: Account<'info, GlobalState>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(mut)]
+    pub stake_record: Account<'info, StakingRecord>,
+}
+
+#[derive(Accounts)]
+pub struct AdminWithdrawUsdt<'info> {
+    #[account(mut, has_one = admin)]
+    pub state: Box<Account<'info, GlobalState>>,
+
+    /// USDT Vault
+    #[account(mut, constraint = usdt_vault.key() == state.usdt_vault)]
+    pub usdt_vault: Box<Account<'info, TokenAccount>>,
+
+    /// Admin's USDT Token Account
+    #[account(mut)]
+    pub admin_usdt: Box<Account<'info, TokenAccount>>,
+
+    /// CHECK: Vault Authority PDA
+    #[account(
+        seeds = [b"vault-authority"],
+        bump = state.vault_authority_bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1154,7 +1253,8 @@ pub struct StakingRecord {
     pub lock_duration_months: u8,
     pub is_refunded: bool,
     pub is_staked: bool,
-    pub padding: [u8; 32],
+    pub is_capped_stopped: bool,
+    pub padding: [u8; 31],
 }
 
 // Event System Log Specifications
@@ -1214,4 +1314,6 @@ pub enum AGXError {
     InvalidVaultType,
     #[msg("Invalid staking record ID provided.")]
     InvalidRecordId,
+    #[msg("Staking distribution stopped because 4X Working Capping was reached.")]
+    CappingLimitReached,
 }
